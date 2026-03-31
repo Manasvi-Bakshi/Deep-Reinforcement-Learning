@@ -34,8 +34,7 @@ You should see:
 Install required Python packages:
 
 ```
-pip install fastapi uvicorn
-pip install requests
+pip install fastapi uvicorn requests
 ```
 
 ---
@@ -53,40 +52,9 @@ Then:
   ```
   Python 3.10 (openenv)
   ```
-
 ---
 
-## 4. Run Locally (Without Docker)
-
-Start the API server:
-
-```
-uvicorn app.main:app --host 0.0.0.0 --port 7860
-```
-
-In another terminal, run:
-
-### Validator
-
-```
-python validator.py
-```
-
-Expected output:
-
-```
-All checks passed
-```
-
-### Baseline Agent
-
-```
-python baseline/run.py
-```
-
----
-
-## 5. Install Docker
+## 4. Install Docker
 
 Install Docker Desktop and restart your system.
 
@@ -99,7 +67,7 @@ docker run hello-world
 
 ---
 
-## 6. Build Docker Image
+## 5. Build Docker Image
 
 From the project root directory:
 
@@ -109,7 +77,7 @@ docker build -t openenv .
 
 ---
 
-## 7. Run Container
+## 6. Run Container
 
 ```
 docker run -p 7860:7860 openenv
@@ -117,7 +85,7 @@ docker run -p 7860:7860 openenv
 
 ---
 
-## 8. Validate Docker Setup
+## 7. Validate the Setup
 
 In a new terminal:
 
@@ -129,6 +97,11 @@ Expected:
 
 ```
 All checks passed
+```
+### Baseline Agent
+
+```
+python baseline/run.py
 ```
 
 ---
@@ -148,15 +121,3 @@ All checks passed
 
 * Ensure Docker is running before building.
 
-
-## Status Check
-
-If everything works:
-
-* API runs ✔
-* Validator passes ✔
-* Baseline runs ✔
-* Docker builds ✔
-* Docker validation passes ✔
-
-You are ready to proceed.

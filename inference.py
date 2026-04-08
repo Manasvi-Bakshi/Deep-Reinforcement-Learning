@@ -1,6 +1,7 @@
 import os
 import requests
 from typing import List, Optional
+from openai import OpenAI   # ✅ NEW
 
 BASE_ENV_URL = os.getenv("BASE_ENV_URL", "http://localhost:8000")
 MAX_STEPS = int(os.getenv("MAX_STEPS", 50))
@@ -8,6 +9,12 @@ SUCCESS_THRESHOLD = float(os.getenv("SUCCESS_THRESHOLD", 0.6))
 
 TASK_NAME = "packet_scheduling"
 BENCHMARK = "openenv_packet_env"
+
+# ✅ NEW: LLM CLIENT (MANDATORY FOR PHASE 2)
+client = OpenAI(
+    base_url=os.getenv("API_BASE_URL"),
+    api_key=os.getenv("API_KEY"),
+)
 
 
 def log_start(task: str, env: str, model: str):
@@ -27,6 +34,32 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]):
         f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
         flush=True,
     )
+
+
+# ✅ NEW: minimal LLM call
+def llm_hint(obs):
+    try:
+        response = client.chat.completions.create(
+            model=os.getenv("MODEL_NAME", "gpt-4o-mini"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Return ONLY a number between 0 and 1."
+                },
+                {
+                    "role": "user",
+                    "content": f"Queues: {obs['q_priority']}, {obs['q_regular']}"
+                }
+            ],
+            max_tokens=5,
+        )
+
+        text = response.choices[0].message.content.strip()
+        val = float(text)
+        return max(0.0, min(1.0, val))
+
+    except Exception:
+        return None
 
 
 def detect_regime(obs, history):
@@ -151,8 +184,17 @@ def main():
 
         obs = data["observation"]["observation"]
 
+        # ✅ ONE LLM CALL PER EPISODE
+        llm_ratio = llm_hint(obs)
+
         for step in range(1, MAX_STEPS + 1):
-            action_val = heuristic_action(obs, obs_history, prev_ratio)
+            base_action = heuristic_action(obs, obs_history, prev_ratio)
+
+            if llm_ratio is not None:
+                action_val = 0.8 * base_action + 0.2 * llm_ratio
+            else:
+                action_val = base_action
+
             prev_ratio = action_val
 
             data, err = safe_post(

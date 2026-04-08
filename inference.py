@@ -10,17 +10,13 @@ SUCCESS_THRESHOLD = float(os.getenv("SUCCESS_THRESHOLD", 0.6))
 TASK_NAME = "packet_scheduling"
 BENCHMARK = "openenv_packet_env"
 
-# 🔥 FIXED: enforce correct env usage
-api_base = os.environ.get("API_BASE_URL")
-api_key = os.environ.get("API_KEY")
-
-if not api_base or not api_key:
-    raise RuntimeError("Missing API_BASE_URL or API_KEY")
-
+# 🔥 STRICT: MUST USE PROVIDED PROXY (NO FALLBACKS)
 client = OpenAI(
-    base_url=api_base,
-    api_key=api_key,
+    base_url=os.environ["API_BASE_URL"],
+    api_key=os.environ["API_KEY"],
 )
+
+MODEL_NAME = os.environ["MODEL_NAME"]  # 🔥 also required
 
 
 def log_start(task: str, env: str, model: str):
@@ -42,24 +38,19 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]):
     )
 
 
-# 🔥 FIXED: no silent failure + guaranteed proxy attempt
-def llm_hint(obs):
-    try:
-        response = client.chat.completions.create(
-            model=os.environ.get("MODEL_NAME", "gpt-4o-mini"),
-            messages=[
-                {"role": "system", "content": "Return ONLY a number between 0 and 1."},
-                {"role": "user", "content": f"{obs['q_priority']},{obs['q_regular']}"}
-            ],
-            max_tokens=5,
-        )
+# 🔥 GUARANTEED PROXY CALL (NO SILENT FAIL)
+def force_llm_call(obs):
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": "Return ONLY a number between 0 and 1."},
+            {"role": "user", "content": f"{obs['q_priority']},{obs['q_regular']}"}
+        ],
+        max_tokens=5,
+    )
 
-        text = response.choices[0].message.content.strip()
-        return max(0.0, min(1.0, float(text)))
-
-    except Exception as e:
-        print(f"[LLM_ERROR] {str(e)}", flush=True)
-        return 0.5
+    text = response.choices[0].message.content.strip()
+    return max(0.0, min(1.0, float(text)))
 
 
 def detect_regime(obs, history):
@@ -100,56 +91,11 @@ def detect_regime(obs, history):
 def heuristic_action(obs, history, prev_ratio):
     q_p = obs["q_priority"]
     q_r = obs["q_regular"]
-    loss = obs["loss_rate"]
-    latency = obs["avg_latency"]
-    fairness = obs["fairness_index"]
 
-    regime = detect_regime(obs, history)
+    total = q_p + q_r + 1e-6
+    base = q_p / total
 
-    if regime == "priority_flood":
-        target = 0.72
-        if q_p > 20:
-            target = min(0.90, target + 0.08)
-        if q_r > 15:
-            target -= 0.06
-
-    elif regime == "regular_surge":
-        target = 0.38
-        if q_r > 20:
-            target = max(0.15, target - 0.08)
-        if q_p > 15:
-            target += 0.06
-
-    elif regime == "fairness_stress":
-        target = 0.50
-        total = q_p + q_r + 1e-6
-        imbalance = (q_p - q_r) / total
-        target -= 0.3 * imbalance
-        target = max(0.38, min(0.62, target))
-
-    elif regime == "throughput_race":
-        total = q_p + q_r + 1e-6
-        target = 0.50 if total < 1.0 else max(0.30, min(0.70, q_p / total))
-
-    else:
-        total = q_p + q_r + 1e-6
-        target = max(0.40, min(0.65, q_p / total if total > 0 else 0.50))
-
-    if loss > 0.10:
-        target = min(target + 0.05, 0.85)
-
-    if latency > 8.0:
-        target = min(target + 0.05, 0.90) if q_p > q_r else max(target - 0.05, 0.10)
-
-    if fairness < 0.55:
-        target = 0.50
-
-    if q_p >= 36:
-        target = min(0.92, target + 0.15)
-    if q_r >= 36:
-        target = max(0.08, target - 0.15)
-
-    return max(0.0, min(1.0, 0.8 * target + 0.2 * prev_ratio))
+    return max(0.0, min(1.0, 0.8 * base + 0.2 * prev_ratio))
 
 
 def safe_post(session, url, payload=None):
@@ -171,7 +117,7 @@ def main():
     obs_history = []
     prev_ratio = 0.5
 
-    log_start(TASK_NAME, BENCHMARK, "heuristic-baseline")
+    log_start(TASK_NAME, BENCHMARK, "proxy-llm-agent")
 
     session = requests.Session()
 
@@ -184,14 +130,14 @@ def main():
 
         obs = data["observation"]["observation"]
 
-        # 🔥 guaranteed LLM call
-        llm_ratio = llm_hint(obs)
+        # 🔥 MUST SUCCEED (NO TRY/EXCEPT)
+        llm_ratio = force_llm_call(obs)
 
         for step in range(1, MAX_STEPS + 1):
             base_action = heuristic_action(obs, obs_history, prev_ratio)
 
-            action_val = 0.8 * base_action + 0.2 * llm_ratio
-
+            # blend LLM influence
+            action_val = 0.7 * base_action + 0.3 * llm_ratio
             prev_ratio = action_val
 
             data, err = safe_post(

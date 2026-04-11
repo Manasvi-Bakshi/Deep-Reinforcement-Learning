@@ -2,10 +2,11 @@ from fastapi import FastAPI, Request
 from server.pkt_schd_rl_environment import PacketSchedEnv
 from models import PacketAction
 import subprocess
+import math
 
 app = FastAPI()
 
-# single env instance (deterministic)
+# deterministic env instance
 env = PacketSchedEnv(task="easy")
 
 
@@ -13,14 +14,25 @@ env = PacketSchedEnv(task="easy")
 # RESET
 # -----------------------------
 @app.post("/reset")
-def reset():
+async def reset(request: Request):
+    global env
+
+    try:
+        body = await request.json()
+        task = body.get("task", "easy")
+    except Exception:
+        task = "easy"
+
+    # reinitialize env with task
+    env = PacketSchedEnv(task=task)
+
     result = env.reset()
+
     return {
-        "observation": {
-            "observation": result.observation.model_dump()
-        },
-        "reward": result.reward,
-        "done": result.done
+        "observation": result.observation.model_dump(),
+        "reward": float(result.reward),
+        "done": bool(result.done),
+        "info": {}
     }
 
 
@@ -33,30 +45,53 @@ def step(action: dict):
     result = env.step(act)
 
     return {
-        "observation": {
-            "observation": result.observation.model_dump()
-        },
-        "reward": result.reward,
-        "done": result.done
+        "observation": result.observation.model_dump(),
+        "reward": float(result.reward),
+        "done": bool(result.done),
+        "info": {}
     }
 
 
 # -----------------------------
-# TASKS (REQUIRED)
+# TASKS (STRICT SCHEMA)
 # -----------------------------
 @app.get("/tasks")
 def tasks():
+    schema = {
+        "type": "object",
+        "properties": {
+            "priority_ratio": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0
+            }
+        },
+        "required": ["priority_ratio"]
+    }
+
     return {
         "tasks": [
-            {"name": "easy", "action_schema": {"priority_ratio": "float (0 to 1)"}},
-            {"name": "moderate", "action_schema": {"priority_ratio": "float (0 to 1)"}},
-            {"name": "hard", "action_schema": {"priority_ratio": "float (0 to 1)"}},
+            {
+                "name": "easy",
+                "description": "Low traffic, stable conditions",
+                "action_schema": schema
+            },
+            {
+                "name": "moderate",
+                "description": "Bursty traffic with regime shifts",
+                "action_schema": schema
+            },
+            {
+                "name": "hard",
+                "description": "Adversarial congestion + fairness constraints",
+                "action_schema": schema
+            }
         ]
     }
 
 
 # -----------------------------
-# GRADER (SPEC COMPLIANT)
+# GRADER (STRICT (0,1))
 # -----------------------------
 @app.post("/grader")
 async def grader(request: Request):
@@ -64,13 +99,17 @@ async def grader(request: Request):
     rewards = data.get("rewards", [])
 
     if not rewards:
-        return {"score": 0.0}
+        return {"score": 0.001}  # NEVER 0
 
-    max_total = len(rewards) * 5.0  # upper bound
-    score = sum(rewards) / max_total
-    score = max(0.0, min(1.0, score))
+    total = sum(rewards)
 
-    return {"score": score}
+    # smooth deterministic normalization
+    score = 1 / (1 + math.exp(-total / 20))
+
+    # enforce STRICT bounds
+    score = max(0.001, min(0.999, score))
+
+    return {"score": float(score)}
 
 
 # -----------------------------
@@ -84,3 +123,7 @@ def baseline():
         text=True
     )
     return {"output": result.stdout}
+
+@app.get("/")
+def root():
+    return {"status": "ok"}

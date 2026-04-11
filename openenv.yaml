@@ -1,17 +1,14 @@
 spec_version: 1
-name: pkt_schd_rl
-type: space
-runtime: fastapi
-app: server.app:app
-port: 8000
-
-
-
 
 name: packet-scheduling-env
 description: >
   A network packet scheduling environment where an agent allocates bandwidth
   between priority and regular traffic to minimize congestion.
+
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
 
 tasks:
   - name: easy
@@ -30,27 +27,40 @@ observation_space:
   type: object
   properties:
     q_priority:
-      type: float
+      type: number
     q_regular:
-      type: float
+      type: number
     incoming:
-      type: float
+      type: number
     step:
       type: integer
+    p_lost:
+      type: integer
+    r_lost:
+      type: integer
+    loss_rate:
+      type: number
+    avg_latency:
+      type: number
+    throughput:
+      type: number
+    fairness_index:
+      type: number
 
 action_space:
   type: object
   properties:
     priority_ratio:
-      type: float
+      type: number
       minimum: 0.0
       maximum: 1.0
+  required: ["priority_ratio"]
 
 reward:
   description: >
-    Negative reward proportional to queue sizes, with higher penalty for
-    priority queue and additional penalty for overflow.
+    Multi-objective reward balancing loss, latency, throughput, and fairness.
+    Penalizes congestion, instability, and unfair allocation.
 
 grader:
-  type: custom
-  description: Normalizes total reward into [0,1] based on task difficulty.
+  type: external
+  endpoint: /grader

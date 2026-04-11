@@ -15,9 +15,9 @@ dependencies = [
     "openai>=1.0.0"
 ]
 
-# ✅ IMPORTANT: match deployment entry
+# ✅ FIXED: must match openenv.yaml entrypoint
 [project.scripts]
-server = "app:app"
+server = "server.app:main"
 
 [tool.setuptools]
 packages = ["server"]

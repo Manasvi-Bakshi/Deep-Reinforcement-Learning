@@ -1,4 +1,4 @@
-openenv
+openenv-core
 fastapi
 uvicorn
 pydantic
